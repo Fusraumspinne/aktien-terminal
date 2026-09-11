@@ -6,10 +6,14 @@ export type PositionLot = {
   entryPrice: number;
   priceCandleTime?: string;
   priceResolution?: string;
+  lastPrice?: number;
+  lastPriceAt?: string;
   soldAt?: string;
   exitPrice?: number;
   exitPriceCandleTime?: string;
   exitPriceResolution?: string;
+  exitPriceSource?: "market" | "manual-percent";
+  manualProfitLossPercent?: number;
 };
 
 export type NewPositionLot = Omit<PositionLot, "id">;
@@ -19,4 +23,14 @@ export type PositionExit = {
   exitPrice: number;
   exitPriceCandleTime: string;
   exitPriceResolution: string;
+  exitPriceSource?: "market" | "manual-percent";
+  manualProfitLossPercent?: number;
+};
+
+export type PositionViewMode = "ticker" | "all";
+
+export type PositionPriceSnapshot = {
+  symbol: string;
+  price: number;
+  time: string;
 };

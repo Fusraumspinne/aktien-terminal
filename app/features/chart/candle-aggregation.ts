@@ -10,9 +10,18 @@ function mergeCandle(target: Candle, candle: Candle) {
 function aggregateSequentially(candles: Candle[], factor: number) {
   if (factor <= 1) return candles;
   const aggregated: Candle[] = [];
-  candles.forEach((candle, index) => {
-    if (index % factor === 0) aggregated.push({ ...candle });
-    else mergeCandle(aggregated[aggregated.length - 1], candle);
+  const leadingGroupSize = candles.length % factor || factor;
+  let groupSize = 0;
+  let targetGroupSize = leadingGroupSize;
+  candles.forEach((candle) => {
+    if (!aggregated.length || groupSize >= targetGroupSize) {
+      aggregated.push({ ...candle });
+      groupSize = 1;
+      if (aggregated.length > 1) targetGroupSize = factor;
+    } else {
+      mergeCandle(aggregated[aggregated.length - 1], candle);
+      groupSize += 1;
+    }
   });
   return aggregated;
 }

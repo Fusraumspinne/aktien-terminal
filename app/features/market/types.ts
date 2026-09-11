@@ -24,6 +24,11 @@ export interface MarketChartBundle {
   exchange: string;
   currency: string;
   candlesByTimeframe: CandlesByTimeframe;
+  indicatorSourceCandles?: {
+    minute?: Candle[];
+    fifteenMinute?: Candle[];
+    daily?: Candle[];
+  };
   candleResolutionByTimeframe?: Record<Timeframe, CandleResolution>;
   lastPrice: number;
   change: number;

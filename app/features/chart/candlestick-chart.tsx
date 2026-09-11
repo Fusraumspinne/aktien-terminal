@@ -36,12 +36,14 @@ function formatIndicatorValue(value: number | null) {
 
 export function CandlestickChartView({
   candles: sourceCandles,
+  indicatorCandles: indicatorSourceCandles = sourceCandles,
   timeframe,
   indicators,
   resolution,
   aggregationFactor,
 }: {
   candles: Candle[];
+  indicatorCandles?: Candle[];
   timeframe: Timeframe;
   indicators: IndicatorSettings;
   resolution: CandleResolution;
@@ -56,18 +58,37 @@ export function CandlestickChartView({
   const [panOffset, setPanOffset] = useState(0);
   const [verticalPan, setVerticalPan] = useState(0);
   const [isPanning, setIsPanning] = useState(false);
+  const calculationCandles = useMemo(
+    () => candlesForZoom(indicatorSourceCandles, resolution, aggregationFactor),
+    [aggregationFactor, indicatorSourceCandles, resolution],
+  );
   const candles = useMemo(
-    () => candlesForZoom(sourceCandles, resolution, aggregationFactor),
-    [aggregationFactor, resolution, sourceCandles],
+    () => {
+      if (!sourceCandles.length || !calculationCandles.length) return [];
+      const firstTime = new Date(sourceCandles[0].time).getTime();
+      const lastTime = new Date(sourceCandles[sourceCandles.length - 1].time).getTime();
+      return calculationCandles.filter((candle) => {
+        const time = new Date(candle.time).getTime();
+        return time >= firstTime && time <= lastTime;
+      });
+    },
+    [calculationCandles, sourceCandles],
   );
   const resetVwapBySession = resolution.unit === "minute" && aggregationFactor < candlesPerTradingSession(resolution);
   const calculatedIndicators = useMemo(
-    () => calculateIndicators(candles, { resetVwapBySession }),
-    [candles, resetVwapBySession],
+    () => calculateIndicators(calculationCandles, { resetVwapBySession }),
+    [calculationCandles, resetVwapBySession],
   );
-  const activeOverlayIds = indicatorDefinitions.filter((definition) => definition.group === "overlay" && indicators[definition.id]).map((definition) => definition.id);
+  const calculationIndexByTime = useMemo(
+    () => new Map(calculationCandles.map((candle, index) => [candle.time, index])),
+    [calculationCandles],
+  );
+  const activeOverlayIds = indicatorDefinitions.filter((definition) => definition.group === "overlay" && definition.id !== "levels" && indicators[definition.id]).map((definition) => definition.id);
   const activePanelIds = indicatorDefinitions.filter((definition) => definition.group === "panel" && indicators[definition.id]).map((definition) => definition.id);
-  const activePriceLevels = indicators.levels ? calculatedIndicators.levels : [];
+  const activePriceLevels = useMemo(
+    () => indicators.levels ? calculateIndicators(candles, { resetVwapBySession }).levels : [],
+    [candles, indicators.levels, resetVwapBySession],
+  );
   const timeAxisHeight = 30;
   const padding = { top: 24, right: 76, bottom: 8, left: 12 };
   const dimensions = { width: Math.max(320, viewport.width), height: Math.max(260, viewport.height) };
@@ -87,15 +108,13 @@ export function CandlestickChartView({
   const visibleEnd = Math.ceil(candles.length - boundedPanOffset);
   const visibleStart = Math.max(0, visibleEnd - visibleCount);
   const visibleCandles = candles.slice(visibleStart, visibleEnd);
-  const overlayValues = activeOverlayIds.flatMap((id) => {
-    if (id === "bollinger") return [...calculatedIndicators.bollingerUpper, ...calculatedIndicators.bollingerMiddle, ...calculatedIndicators.bollingerLower];
-    if (id === "donchian") return [...calculatedIndicators.donchianUpper, ...calculatedIndicators.donchianMiddle, ...calculatedIndicators.donchianLower];
-    return indicatorSeries(id);
-  }).filter((value): value is number => value !== null && Number.isFinite(value));
+  const overlayValues = activeOverlayIds
+    .flatMap((id) => overlaySeries(id))
+    .flatMap((series) => visibleCandles.map((_candle, index) => indicatorValueAt(series, visibleStart + index)))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
   const priceValues = [
-    ...candles.flatMap((candle) => [candle.low, candle.high]),
+    ...visibleCandles.flatMap((candle) => [candle.low, candle.high]),
     ...overlayValues,
-    ...activePriceLevels.flatMap((level) => [level.price - level.zoneWidth, level.price + level.zoneWidth]),
   ];
   const low = Math.min(...priceValues);
   const high = Math.max(...priceValues);
@@ -141,10 +160,17 @@ export function CandlestickChartView({
     return [indicatorSeries(id)];
   }
 
+  function indicatorValueAt(series: IndicatorSeries, chartIndex: number) {
+    const candle = candles[chartIndex];
+    if (!candle) return null;
+    const calculationIndex = calculationIndexByTime.get(candle.time);
+    return calculationIndex === undefined ? null : series[calculationIndex] ?? null;
+  }
+
   function linePoints(series: IndicatorSeries, yForValue: (value: number) => number) {
     return visibleCandles
       .map((_candle, index) => {
-        const value = series[visibleStart + index];
+        const value = indicatorValueAt(series, visibleStart + index);
         return value === null || value === undefined ? null : `${xForIndex(index)},${yForValue(value)}`;
       })
       .filter((point): point is string => point !== null)
@@ -167,7 +193,9 @@ export function CandlestickChartView({
 
   function panelBounds(id: IndicatorId, series: IndicatorSeries[]) {
     if (id === "rsi" || id === "stochastic" || id === "adx") return { min: 0, max: 100 };
-    const values = series.flat().filter((value): value is number => value !== null && Number.isFinite(value));
+    const values = series
+      .flatMap((indicatorSeriesValue) => visibleCandles.map((_candle, index) => indicatorValueAt(indicatorSeriesValue, visibleStart + index)))
+      .filter((value): value is number => value !== null && Number.isFinite(value));
     if (!values.length) return { min: 0, max: 1 };
     if (id === "volume" || id === "atr") return { min: 0, max: Math.max(...values) * 1.08 || 1 };
     const min = Math.min(...values, 0);
@@ -185,7 +213,7 @@ export function CandlestickChartView({
     return overlaySeries(id).map((series, seriesIndex) => ({
       id: `${id}-${seriesIndex}`,
       label: labels[seriesIndex],
-      value: series[readoutIndex],
+      value: indicatorValueAt(series, readoutIndex),
       className: `indicator-${id}${seriesIndex === 1 ? " secondary" : seriesIndex === 2 ? " tertiary" : ""}`,
     }));
   });
@@ -403,7 +431,7 @@ export function CandlestickChartView({
                   : [];
           const seriesLabels = panelSeriesLabels(id);
           const panelCurrentValues = series.map((indicatorSeriesValue, seriesIndex) => {
-            const value = formatIndicatorValue(indicatorSeriesValue[readoutIndex]);
+            const value = formatIndicatorValue(indicatorValueAt(indicatorSeriesValue, readoutIndex));
             return seriesLabels[seriesIndex] ? `${seriesLabels[seriesIndex]} ${value}` : value;
           }).join(" / ");
 
@@ -419,12 +447,12 @@ export function CandlestickChartView({
                 <line className="indicator-reference-line" key={`${id}-reference-${value}`} x1={padding.left} x2={dimensions.width - padding.right} y1={yForPanelValue(value)} y2={yForPanelValue(value)} />
               ))}
               {id === "volume" ? visibleCandles.map((candle, visibleIndex) => {
-                const value = calculatedIndicators.volume[visibleStart + visibleIndex] ?? 0;
+                const value = indicatorValueAt(calculatedIndicators.volume, visibleStart + visibleIndex) ?? 0;
                 const y = yForPanelValue(value);
                 return <rect className={`indicator-bar volume ${candle.close >= candle.open ? "positive" : "negative"}`} key={`volume-${candle.time}`} x={xForIndex(visibleIndex) - Math.max(1, candleWidth) / 2} y={y} width={Math.max(1, candleWidth)} height={Math.max(1, yForPanelValue(0) - y)} />;
               }) : null}
               {id === "macd" ? visibleCandles.map((candle, visibleIndex) => {
-                const value = calculatedIndicators.macdHistogram[visibleStart + visibleIndex];
+                const value = indicatorValueAt(calculatedIndicators.macdHistogram, visibleStart + visibleIndex);
                 if (value === null || value === undefined) return null;
                 const zeroY = yForPanelValue(0);
                 const valueY = yForPanelValue(value);
@@ -480,4 +508,3 @@ export function CandlestickChartView({
     </div>
   );
 }
-

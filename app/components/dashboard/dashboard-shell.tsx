@@ -13,8 +13,9 @@ import { LexiconModal } from "../../features/lexicon/lexicon-modal";
 import type { LexiconTab } from "../../features/lexicon/lexicon-modal";
 import { getMarketChartBundle } from "../../features/market/client";
 import type { MarketChartBundle } from "../../features/market/types";
+import { PositionSettings } from "../../features/positions/position-settings";
 import { PositionsWidget } from "../../features/positions/positions-widget";
-import type { NewPositionLot, PositionExit, PositionLot } from "../../features/positions/types";
+import type { NewPositionLot, PositionExit, PositionLot, PositionPriceSnapshot, PositionViewMode } from "../../features/positions/types";
 import { WatchlistWidget } from "../../features/watchlist/watchlist-widget";
 import type { WatchlistItem } from "../../features/watchlist/watchlist-widget";
 import { WidgetShell } from "./widget-shell";
@@ -30,7 +31,9 @@ const widgetDefinitions: { id: WidgetId; label: string }[] = [
   { id: "positions", label: "Positionen" },
 ];
 const workspaceStorageKey = "marketdesk.workspace.v2";
-const workspaceVersion = 3;
+const positionsStorageKey = "marketdesk.positions.v1";
+const positionSnapshotsStorageKey = "marketdesk.position-prices.v1";
+const workspaceVersion = 4;
 
 const initialLayouts: ResponsiveLayouts<BreakpointKey> = {
   lg: [
@@ -171,7 +174,7 @@ function restorePositions(value: unknown): PositionLot[] {
     const storedExitPrice = typeof stored.exitPrice === "number" ? stored.exitPrice : Number(stored.exitPrice);
     const hasValidExit = Number.isFinite(Date.parse(storedSoldAt))
       && Number.isFinite(storedExitPrice)
-      && storedExitPrice > 0;
+      && storedExitPrice >= 0;
 
     return [{
       id: typeof stored.id === "string" && stored.id ? stored.id : `${symbol}-${purchasedAt}-${index}`,
@@ -181,11 +184,33 @@ function restorePositions(value: unknown): PositionLot[] {
       entryPrice,
       priceCandleTime: typeof stored.priceCandleTime === "string" ? stored.priceCandleTime : undefined,
       priceResolution: typeof stored.priceResolution === "string" ? stored.priceResolution : undefined,
+      lastPrice: Number.isFinite(typeof stored.lastPrice === "number" ? stored.lastPrice : Number(stored.lastPrice))
+        ? (typeof stored.lastPrice === "number" ? stored.lastPrice : Number(stored.lastPrice))
+        : undefined,
+      lastPriceAt: typeof stored.lastPriceAt === "string" && Number.isFinite(Date.parse(stored.lastPriceAt)) ? stored.lastPriceAt : undefined,
       soldAt: hasValidExit ? storedSoldAt : undefined,
       exitPrice: hasValidExit ? storedExitPrice : undefined,
       exitPriceCandleTime: hasValidExit && typeof stored.exitPriceCandleTime === "string" ? stored.exitPriceCandleTime : undefined,
       exitPriceResolution: hasValidExit && typeof stored.exitPriceResolution === "string" ? stored.exitPriceResolution : undefined,
+      exitPriceSource: hasValidExit && stored.exitPriceSource === "manual-percent" ? "manual-percent" : "market",
+      manualProfitLossPercent: hasValidExit && Number.isFinite(typeof stored.manualProfitLossPercent === "number" ? stored.manualProfitLossPercent : Number(stored.manualProfitLossPercent))
+        ? (typeof stored.manualProfitLossPercent === "number" ? stored.manualProfitLossPercent : Number(stored.manualProfitLossPercent))
+        : undefined,
     }];
+  });
+}
+
+function restorePositionSnapshots(value: unknown): PositionPriceSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const stored = item as Record<string, unknown>;
+    const symbol = normalizeTicker(typeof stored.symbol === "string" ? stored.symbol : "");
+    const price = typeof stored.price === "number" ? stored.price : Number(stored.price);
+    const time = typeof stored.time === "string" ? stored.time : "";
+    if (!symbol || !Number.isFinite(price) || price <= 0 || !Number.isFinite(Date.parse(time))) return [];
+    return [{ symbol, price, time }];
   });
 }
 
@@ -197,6 +222,8 @@ export function DashboardShell() {
   const [tickerInput, setTickerInput] = useState("");
   const [watchlist, setWatchlist] = useState(initialWatchlist);
   const [positions, setPositions] = useState(initialPositions);
+  const [positionViewMode, setPositionViewMode] = useState<PositionViewMode>("ticker");
+  const [positionSnapshots, setPositionSnapshots] = useState<PositionPriceSnapshot[]>([]);
   const [indicators, setIndicators] = useState<IndicatorSettings>(defaultIndicatorSettings);
   const [selectedMarketData, setSelectedMarketData] = useState<MarketChartBundle | null>(null);
   const [chartRefreshKey, setChartRefreshKey] = useState(0);
@@ -242,6 +269,8 @@ export function DashboardShell() {
             visibleWidgets?: unknown;
             watchlist?: unknown;
             positions?: unknown;
+            positionViewMode?: unknown;
+            positionSnapshots?: unknown;
             indicators?: unknown;
           };
           const storedWidgets = Array.isArray(parsed.visibleWidgets)
@@ -269,7 +298,16 @@ export function DashboardShell() {
               .filter((item) => item.symbol);
             setWatchlist(restoredWatchlist);
           }
-          setPositions(restorePositions(parsed.positions));
+          const storedPositions = window.localStorage.getItem(positionsStorageKey);
+          const restoredPositions = storedPositions ? restorePositions(JSON.parse(storedPositions)) : restorePositions(parsed.positions);
+          setPositions(restoredPositions);
+          const storedSnapshots = window.localStorage.getItem(positionSnapshotsStorageKey);
+          setPositionSnapshots(storedSnapshots
+            ? restorePositionSnapshots(JSON.parse(storedSnapshots))
+            : restorePositionSnapshots(parsed.positionSnapshots));
+          if (parsed.positionViewMode === "ticker" || parsed.positionViewMode === "all") {
+            setPositionViewMode(parsed.positionViewMode);
+          }
           if (parsed.indicators !== undefined) {
             setIndicators(restoreIndicatorSettings(parsed.indicators));
           }
@@ -291,9 +329,13 @@ export function DashboardShell() {
       visibleWidgets,
       watchlist,
       positions,
+      positionViewMode,
+      positionSnapshots,
       indicators,
     }));
-  }, [layouts, visibleWidgets, watchlist, positions, indicators, workspaceLoaded]);
+    window.localStorage.setItem(positionsStorageKey, JSON.stringify(positions));
+    window.localStorage.setItem(positionSnapshotsStorageKey, JSON.stringify(positionSnapshots));
+  }, [layouts, visibleWidgets, watchlist, positions, positionViewMode, positionSnapshots, indicators, workspaceLoaded]);
 
   const updateWatchlistMetadata = useCallback((bundle: MarketChartBundle) => {
     setWatchlist((items) => items.map((item) => item.symbol === bundle.symbol
@@ -301,10 +343,42 @@ export function DashboardShell() {
       : item));
   }, []);
 
+  const recordPositionMarketData = useCallback((bundle: MarketChartBundle) => {
+    const snapshotTime = bundle.priceAsOf ?? new Date().toISOString();
+    setPositions((items) => items.map((position) => position.symbol === bundle.symbol
+      ? { ...position, lastPrice: bundle.lastPrice, lastPriceAt: snapshotTime }
+      : position));
+    setPositionSnapshots((items) => {
+      // The daily MAX series is already part of the loaded bundle. Reusing a
+      // bounded tail of it gives the overall view a real history after the
+      // first ticker load, without requesting additional price data.
+      const loadedHistory = (bundle.candlesByTimeframe.MAX ?? []).slice(-720).map((candle) => ({
+        symbol: bundle.symbol,
+        price: candle.close,
+        time: candle.time,
+      }));
+      const next = [...items.filter((snapshot) => snapshot.symbol !== bundle.symbol), ...loadedHistory, {
+        symbol: bundle.symbol,
+        price: bundle.lastPrice,
+        time: snapshotTime,
+      }];
+      const unique = next.filter((snapshot, index, all) => all.findIndex((candidate) => (
+        candidate.symbol === snapshot.symbol && candidate.time === snapshot.time
+      )) === index);
+      return unique
+        .sort((first, second) => first.time.localeCompare(second.time))
+        .filter((snapshot, index, all) => {
+          const symbolSnapshots = all.filter((candidate) => candidate.symbol === snapshot.symbol);
+          return symbolSnapshots.indexOf(snapshot) >= Math.max(0, symbolSnapshots.length - 240);
+        });
+    });
+  }, []);
+
   const handleChartBundleLoaded = useCallback((bundle: MarketChartBundle) => {
     updateWatchlistMetadata(bundle);
+    recordPositionMarketData(bundle);
     setSelectedMarketData(bundle);
-  }, [updateWatchlistMetadata]);
+  }, [recordPositionMarketData, updateWatchlistMetadata]);
 
   async function loadTicker(value: string) {
     const nextSymbol = normalizeTicker(value);
@@ -319,6 +393,7 @@ export function DashboardShell() {
     try {
       const bundle = await getMarketChartBundle(nextSymbol);
       updateWatchlistMetadata(bundle);
+      recordPositionMarketData(bundle);
       setSelectedMarketData(bundle);
       setSymbol(bundle.symbol);
     } catch (error) {
@@ -332,6 +407,7 @@ export function DashboardShell() {
     try {
       const bundle = await getMarketChartBundle(symbolToRefresh, { forceRefresh: true });
       updateWatchlistMetadata(bundle);
+      recordPositionMarketData(bundle);
       if (symbol === bundle.symbol) {
         setSelectedMarketData(bundle);
         setChartRefreshKey((value) => value + 1);
@@ -486,6 +562,7 @@ export function DashboardShell() {
                 <WidgetShell title="Watchlist" editable={editing} onRemove={() => removeWidget("watchlist")}>
                   <WatchlistWidget
                     tickerInput={tickerInput}
+                    selectedSymbol={symbol}
                     onTickerChange={setTickerInput}
                     onSubmit={submitTicker}
                     onAddTicker={() => addTickerToWatchlist(tickerInput)}
@@ -508,12 +585,19 @@ export function DashboardShell() {
                 </WidgetShell>
               </div> : null}
               {visibleWidgets.includes("positions") ? <div key="positions">
-                <WidgetShell title="Positionen" editable={editing} onRemove={() => removeWidget("positions")}>
+                <WidgetShell
+                  title="Positionen"
+                  editable={editing}
+                  onRemove={() => removeWidget("positions")}
+                  settings={<PositionSettings value={positionViewMode} onChange={setPositionViewMode} />}
+                >
                   <PositionsWidget
-                    key={symbol ?? "no-symbol"}
+                    key={`${symbol ?? "no-symbol"}-${positionViewMode}`}
                     selectedSymbol={symbol}
                     marketData={selectedMarketData}
                     positions={positions}
+                    viewMode={positionViewMode}
+                    priceSnapshots={positionSnapshots}
                     onAddPosition={addPosition}
                     onRemovePosition={(id) => setPositions((items) => items.filter((position) => position.id !== id))}
                     onSellPosition={sellPosition}

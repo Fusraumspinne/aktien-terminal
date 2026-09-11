@@ -2,7 +2,7 @@ import type { MarketChartBundle } from "./types";
 
 const cacheTtlMs = 5 * 60 * 1000;
 const bundleCache = new Map<string, { expiresAt: number; value: Promise<MarketChartBundle> }>();
-const bundleVersion = "v7-dynamic-candles";
+const bundleVersion = "v8-indicator-warmup";
 
 function normalizeTicker(value: string) {
   return value.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");

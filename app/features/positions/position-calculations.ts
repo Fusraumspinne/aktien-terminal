@@ -1,5 +1,5 @@
 import type { Candle, CandleResolution, MarketChartBundle, Timeframe } from "../market/types";
-import type { PositionLot } from "./types";
+import type { PositionLot, PositionPriceSnapshot } from "./types";
 
 export type PositionPerformancePoint = {
   time: string;
@@ -11,8 +11,6 @@ export type PositionEntryMatch = {
   priceCandleTime: string;
   priceResolution: string;
 };
-
-const priceSourceTimeframes: Timeframe[] = ["1D", "1W", "1M", "3M", "6M", "1Y", "MAX"];
 
 function resolutionDuration(resolution: CandleResolution) {
   return resolution.unit === "minute"
@@ -31,13 +29,29 @@ export function findPositionEntry(bundle: MarketChartBundle, purchasedAtLocal: s
   const localDate = purchasedAtLocal.slice(0, 10);
   const utcDate = target.toISOString().slice(0, 10);
 
-  const sources = priceSourceTimeframes
-    .map((timeframe) => ({
-      timeframe,
-      candles: bundle.candlesByTimeframe[timeframe] ?? [],
-      resolution: bundle.candleResolutionByTimeframe?.[timeframe],
-    }))
-    .filter((source): source is typeof source & { resolution: CandleResolution } => Boolean(source.resolution))
+  // Prefer the raw series that was already fetched for the chart. This keeps
+  // the entry/exit price as close as possible to the selected minute without
+  // introducing a separate historical-price request.
+  const rawSources = [
+    {
+      candles: bundle.indicatorSourceCandles?.minute ?? [],
+      resolution: { unit: "minute", value: 1 } as CandleResolution,
+    },
+    {
+      candles: bundle.indicatorSourceCandles?.fifteenMinute ?? [],
+      resolution: { unit: "minute", value: 15 } as CandleResolution,
+    },
+    {
+      candles: bundle.indicatorSourceCandles?.daily ?? [],
+      resolution: { unit: "day", value: 1 } as CandleResolution,
+    },
+  ];
+  const fallbackSources = (Object.keys(bundle.candlesByTimeframe) as Timeframe[]).map((timeframe) => ({
+    candles: bundle.candlesByTimeframe[timeframe] ?? [],
+    resolution: bundle.candleResolutionByTimeframe?.[timeframe],
+  })).filter((source): source is typeof source & { resolution: CandleResolution } => Boolean(source.resolution));
+  const sources = [...rawSources, ...fallbackSources]
+    .filter((source) => source.candles.length)
     .sort((first, second) => resolutionDuration(first.resolution) - resolutionDuration(second.resolution));
 
   for (const source of sources) {
@@ -57,16 +71,34 @@ export function findPositionEntry(bundle: MarketChartBundle, purchasedAtLocal: s
     }
 
     const intervalMs = resolutionDuration(source.resolution);
-    const candle = [...source.candles].reverse().find((candidate) => {
+    const candle = source.candles.find((candidate) => {
       const candleTime = new Date(candidate.time).getTime();
       return candidate.time.slice(0, 10) === utcDate
-        && candleTime <= targetTime
-        && targetTime - candleTime < intervalMs;
+        && targetTime >= candleTime
+        && targetTime < candleTime + intervalMs;
     });
     if (candle) {
       return {
         entryPrice: candle.close,
         priceCandleTime: candle.time,
+        priceResolution: resolutionLabel(source.resolution),
+      };
+    }
+
+    // A manually entered time can be just outside the provider's candle
+    // boundary (for example directly after the last regular-session bar).
+    // Use the closest preceding bar from the same market day as a safe
+    // fallback, but never a bar from another day.
+    const precedingCandle = [...source.candles].reverse().find((candidate) => {
+      const candleTime = new Date(candidate.time).getTime();
+      return candidate.time.slice(0, 10) === utcDate
+        && candleTime <= targetTime
+        && targetTime - candleTime <= intervalMs * 2;
+    });
+    if (precedingCandle) {
+      return {
+        entryPrice: precedingCandle.close,
+        priceCandleTime: precedingCandle.time,
         priceResolution: resolutionLabel(source.resolution),
       };
     }
@@ -106,6 +138,41 @@ export function calculatePositionSummary(positions: PositionLot[], currentPrice:
   };
 }
 
+export function calculatePortfolioSummary(positions: PositionLot[], latestPrices: Record<string, number>) {
+  const openPositions = positions.filter((position) => !position.soldAt || position.exitPrice === undefined);
+  const closedPositions = positions.filter((position) => position.soldAt && position.exitPrice !== undefined);
+  const openShares = openPositions.reduce((total, position) => total + position.shares, 0);
+  const openCost = openPositions.reduce((total, position) => total + position.shares * position.entryPrice, 0);
+  const closedCost = closedPositions.reduce((total, position) => total + position.shares * position.entryPrice, 0);
+  const averageOpenPrice = openShares > 0 ? openCost / openShares : 0;
+  const hasAllOpenPrices = openPositions.every((position) => Number.isFinite(latestPrices[position.symbol] ?? position.lastPrice));
+  const marketValue = openPositions.length === 0
+    ? 0
+    : hasAllOpenPrices
+      ? openPositions.reduce((total, position) => total + (latestPrices[position.symbol] ?? position.lastPrice!) * position.shares, 0)
+      : null;
+  const unrealizedProfitLoss = marketValue === null ? null : marketValue - openCost;
+  const realizedProfitLoss = closedPositions.reduce(
+    (total, position) => total + ((position.exitPrice ?? position.entryPrice) - position.entryPrice) * position.shares,
+    0,
+  );
+  const totalProfitLoss = unrealizedProfitLoss === null ? null : unrealizedProfitLoss + realizedProfitLoss;
+  const totalCost = openCost + closedCost;
+
+  return {
+    openCount: openPositions.length,
+    closedCount: closedPositions.length,
+    openShares,
+    openCost,
+    averageOpenPrice,
+    marketValue,
+    unrealizedProfitLoss,
+    realizedProfitLoss,
+    totalProfitLoss,
+    totalProfitLossPercent: totalProfitLoss === null || totalCost === 0 ? null : totalProfitLoss / totalCost * 100,
+  };
+}
+
 export function buildPositionPerformanceSeries(candles: Candle[], positions: PositionLot[]) {
   const sortedPositions = [...positions].sort((first, second) => first.purchasedAt.localeCompare(second.purchasedAt));
   if (!sortedPositions.length) return [];
@@ -125,4 +192,40 @@ export function buildPositionPerformanceSeries(candles: Candle[], positions: Pos
     points.push({ time: candle.time, value });
     return points;
   }, []);
+}
+
+export function buildPortfolioPerformanceSeries(snapshots: PositionPriceSnapshot[], positions: PositionLot[]) {
+  if (!snapshots.length || !positions.length) return [];
+
+  const sortedSnapshots = [...snapshots].sort((first, second) => first.time.localeCompare(second.time));
+  const latestBySymbol = new Map<string, number>();
+  const points: PositionPerformancePoint[] = [];
+
+  for (const snapshot of sortedSnapshots) {
+    latestBySymbol.set(snapshot.symbol, snapshot.price);
+    const snapshotTime = new Date(snapshot.time).getTime();
+    if (!Number.isFinite(snapshotTime)) continue;
+
+    let hasAllRequiredPrices = true;
+    const value = positions.reduce((total, position) => {
+      const purchasedTime = new Date(position.purchasedAt).getTime();
+      if (!Number.isFinite(purchasedTime) || snapshotTime < purchasedTime) return total;
+
+      const soldTime = position.soldAt ? new Date(position.soldAt).getTime() : Number.POSITIVE_INFINITY;
+      if (snapshotTime >= soldTime && position.exitPrice !== undefined) {
+        return total + (position.exitPrice - position.entryPrice) * position.shares;
+      }
+
+      const price = latestBySymbol.get(position.symbol) ?? position.lastPrice;
+      if (!Number.isFinite(price)) {
+        hasAllRequiredPrices = false;
+        return total;
+      }
+      return total + (price! - position.entryPrice) * position.shares;
+    }, 0);
+
+    if (hasAllRequiredPrices) points.push({ time: snapshot.time, value });
+  }
+
+  return points.filter((point, index) => index === 0 || point.time !== points[index - 1].time);
 }

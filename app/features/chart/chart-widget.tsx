@@ -109,6 +109,13 @@ export function ChartWidget({
   const currentError = error?.symbol === symbol ? error.message : null;
   const timeframeCandles = currentData?.candlesByTimeframe[timeframe] ?? [];
   const candleResolution = currentData?.candleResolutionByTimeframe?.[timeframe] ?? fallbackCandleResolutions[timeframe];
+  const indicatorSourceCandles = currentData?.indicatorSourceCandles?.[
+    timeframe === "1D" || timeframe === "1W"
+      ? "minute"
+      : timeframe === "1M" || timeframe === "3M" || timeframe === "6M"
+        ? "fifteenMinute"
+        : "daily"
+  ] ?? timeframeCandles;
   const selectedCandleFactor = candleFactors[timeframe] ?? candleResolution.defaultAggregationFactor;
   const availableCandleFactors = candleResolutionOptions(timeframe, candleResolution);
   const timeframePerformance = getTimeframePerformance(
@@ -180,6 +187,7 @@ export function ChartWidget({
               <CandlestickChartView
                 key={`${currentData.symbol}-${timeframe}`}
                 candles={timeframeCandles}
+                indicatorCandles={indicatorSourceCandles}
                 timeframe={timeframe}
                 indicators={indicators}
                 resolution={candleResolution}

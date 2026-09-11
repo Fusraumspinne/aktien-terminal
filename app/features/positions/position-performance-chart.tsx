@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Candle } from "../market/types";
-import { buildPositionPerformanceSeries } from "./position-calculations";
-import type { PositionLot } from "./types";
+import { buildPortfolioPerformanceSeries, buildPositionPerformanceSeries } from "./position-calculations";
+import type { PositionLot, PositionPriceSnapshot } from "./types";
 
 function formatMoney(value: number) {
   return `${value >= 0 ? "+" : "−"}$${Math.abs(value).toLocaleString("en-US", {
@@ -21,11 +21,13 @@ export function PositionPerformanceChart({
   positions,
   currentPrice,
   priceAsOf,
+  snapshots,
 }: {
-  candles: Candle[];
+  candles?: Candle[];
   positions: PositionLot[];
-  currentPrice: number;
+  currentPrice?: number | null;
   priceAsOf?: string;
+  snapshots?: PositionPriceSnapshot[];
 }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(520);
@@ -40,13 +42,20 @@ export function PositionPerformanceChart({
     return () => observer.disconnect();
   }, []);
 
-  const currentTime = priceAsOf ?? candles[candles.length - 1]?.time ?? new Date().toISOString();
-  const currentDate = currentTime.slice(0, 10);
-  const latestCandle = candles[candles.length - 1];
-  const chartCandles = latestCandle?.time.slice(0, 10) === currentDate
-    ? [...candles.slice(0, -1), { ...latestCandle, close: currentPrice }]
-    : [...candles, { time: currentTime, open: currentPrice, high: currentPrice, low: currentPrice, close: currentPrice, volume: 0 }];
-  const points = buildPositionPerformanceSeries(chartCandles, positions);
+  const points = snapshots
+    ? buildPortfolioPerformanceSeries(snapshots, positions)
+    : (() => {
+        const sourceCandles = candles ?? [];
+        const currentTime = priceAsOf ?? sourceCandles[sourceCandles.length - 1]?.time ?? new Date().toISOString();
+        const currentDate = currentTime.slice(0, 10);
+        const latestCandle = sourceCandles[sourceCandles.length - 1];
+        const chartCandles = latestCandle?.time.slice(0, 10) === currentDate && currentPrice !== null && currentPrice !== undefined
+          ? [...sourceCandles.slice(0, -1), { ...latestCandle, close: currentPrice }]
+          : currentPrice === null || currentPrice === undefined
+            ? sourceCandles
+            : [...sourceCandles, { time: currentTime, open: currentPrice, high: currentPrice, low: currentPrice, close: currentPrice, volume: 0 }];
+        return buildPositionPerformanceSeries(chartCandles, positions);
+      })();
   if (points.length < 2) {
     return <div className="position-chart-empty">Noch nicht genug historische Daten für den Verlauf.</div>;
   }

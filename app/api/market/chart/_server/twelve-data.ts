@@ -412,6 +412,11 @@ async function loadBundle(symbol: string): Promise<MarketChartBundle> {
     exchange: quote?.exchange ?? metadata?.exchange ?? "US MARKET",
     currency: quote?.currency ?? metadata?.currency ?? "USD",
     candlesByTimeframe,
+    indicatorSourceCandles: {
+      minute: minuteCandles,
+      fifteenMinute: fifteenMinuteCandles,
+      daily: dailyCandles,
+    },
     candleResolutionByTimeframe: {
       "1D": { unit: "minute", value: 1, defaultAggregationFactor: 1, maxAggregationFactor: 5 },
       "1W": { unit: "minute", value: 1, defaultAggregationFactor: 5, maxAggregationFactor: 30 },

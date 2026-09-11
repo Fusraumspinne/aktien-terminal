@@ -12,6 +12,7 @@ export type WatchlistItem = {
 
 export function WatchlistWidget({
   tickerInput,
+  selectedSymbol,
   onTickerChange,
   onSubmit,
   onAddTicker,
@@ -24,6 +25,7 @@ export function WatchlistWidget({
   error,
 }: {
   tickerInput: string;
+  selectedSymbol: string | null;
   onTickerChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onAddTicker: () => void;
@@ -73,19 +75,21 @@ export function WatchlistWidget({
               <div className="mini-symbol"><span className="mini-symbol-icon">{stock.symbol.slice(0, 1)}</span><div><strong>{stock.symbol}</strong></div></div>
             </div>
             <div className="watchlist-row-actions">
-              <button
-                className="watchlist-refresh"
-                type="button"
-                aria-label={`${stock.symbol} aktualisieren`}
-                title="Aktuelle Marktdaten laden"
-                disabled={refreshingSymbol === stock.symbol}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRefreshTicker(stock.symbol);
-                }}
-              >
-                <RefreshCw className={refreshingSymbol === stock.symbol ? "spin" : ""} size={14} />
-              </button>
+              {stock.symbol === selectedSymbol ? (
+                <button
+                  className="watchlist-refresh"
+                  type="button"
+                  aria-label={`${stock.symbol} aktualisieren`}
+                  title="Aktuelle Marktdaten laden"
+                  disabled={refreshingSymbol === stock.symbol}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRefreshTicker(stock.symbol);
+                  }}
+                >
+                  <RefreshCw className={refreshingSymbol === stock.symbol ? "spin" : ""} size={14} />
+                </button>
+              ) : null}
               <button
                 className="watchlist-remove"
                 type="button"
@@ -105,4 +109,3 @@ export function WatchlistWidget({
     </div>
   );
 }
-
