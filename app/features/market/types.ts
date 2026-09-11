@@ -9,22 +9,6 @@ export interface Candle {
   volume: number;
 }
 
-export interface ChartQuery {
-  symbol: string;
-  timeframe: Timeframe;
-}
-
-export interface ChartData {
-  symbol: string;
-  name: string;
-  exchange: string;
-  currency: string;
-  candles: Candle[];
-  lastPrice: number;
-  change: number;
-  changePercent: number;
-}
-
 export type CandlesByTimeframe = Record<Timeframe, Candle[]>;
 
 export interface CandleResolution {
@@ -48,8 +32,4 @@ export interface MarketChartBundle {
   priceMode?: "real-time" | "end-of-day" | "latest-aggregate";
   referenceCloseByTimeframe?: Partial<Record<Timeframe, number>>;
   timeframeErrors?: Partial<Record<Timeframe, string>>;
-}
-
-export interface MarketDataRepository {
-  getChartData(query: ChartQuery): Promise<ChartData>;
 }

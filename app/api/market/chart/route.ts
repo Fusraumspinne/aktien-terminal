@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMarketDataErrorStatus, getTwelveDataChartBundle } from "../../../../lib/market/twelve-data-repository";
+import { getMarketDataErrorStatus, getTwelveDataChartBundle } from "./_server/twelve-data";
 
 export async function GET(request: Request) {
   const symbol = new URL(request.url).searchParams.get("symbol") ?? "";

@@ -1,4 +1,4 @@
-import type { Candle, CandleResolution } from "./types";
+import type { Candle, CandleResolution } from "../market/types";
 
 function mergeCandle(target: Candle, candle: Candle) {
   target.high = Math.max(target.high, candle.high);

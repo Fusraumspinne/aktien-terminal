@@ -1,4 +1,6 @@
-import type { Candle, CandlesByTimeframe, MarketChartBundle, Timeframe } from "./types";
+import "server-only";
+
+import type { Candle, CandlesByTimeframe, MarketChartBundle, Timeframe } from "../../../../features/market/types";
 
 const twelveDataBaseUrl = process.env.TWELVE_DATA_API_URL ?? "https://api.twelvedata.com";
 const twelveDataApiKey = process.env.TWELVE_DATA_API_KEY ?? process.env.TWELVE_API_KEY;

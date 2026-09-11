@@ -1,4 +1,4 @@
-import type { Candle } from "./types";
+import type { Candle } from "../market/types";
 
 export type IndicatorSeries = Array<number | null>;
 
