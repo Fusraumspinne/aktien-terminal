@@ -1,36 +1,24 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Marketdesk
 
-## Getting Started
+Ein personalisierbares Aktien-Terminal auf Basis von Next.js. Die aktuelle Datenebene verwendet Twelve Data und hält den API-Key ausschließlich auf dem Server.
 
-First, run the development server:
+## Marktdaten
+
+Lege den Twelve-Data-Key in `.env` oder `.env.local` ab:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+TWELVE_API_KEY=dein_key
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Pro erstmals geladenem Ticker werden vier Twelve-Data-Credits verwendet: Quote, 1-Minuten-, 15-Minuten- und Tagesdaten. Die App berechnet daraus die benötigten 5-Minuten- und Stundenkerzen. Ergebnisse werden im Browser und im Serverprozess fünf Minuten zwischengespeichert; der Aktualisieren-Button umgeht beide Caches.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Beim Zoomen auf der Zeitachse passt der Chart die Kerzenauflösung ausschließlich im Browser an: schmale Kerzen werden zu größeren OHLCV-Gruppen zusammengefasst, breite Gruppen wieder bis zur feinsten bereits geladenen API-Auflösung aufgeteilt.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Entwicklung
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Öffne anschließend [http://localhost:3000](http://localhost:3000).
