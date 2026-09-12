@@ -30,6 +30,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 .terminal-app { min-height: 100vh; }
 .topbar { height: 66px; border-bottom: 1px solid var(--border-soft); display: flex; align-items: center; padding: 0 38px; gap: 48px; background: rgba(10, 13, 18, .8); backdrop-filter: blur(18px); position: sticky; top: 0; z-index: 10; }
+.market-data-toast { position: fixed; z-index: 100; top: 14px; left: 50%; width: max-content; max-width: min(520px, calc(100vw - 28px)); min-height: 38px; display: flex; align-items: center; gap: 9px; padding: 8px 9px 8px 12px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 8px; background: var(--panel-raised); color: var(--text); font-size: 11px; }
+.market-data-toast.database > svg { color: #67b6d9; }
+.market-data-toast.provider > svg { color: var(--accent); }
+.market-data-toast.success > svg { color: var(--accent); }
+.market-data-toast.error { border-color: #66353d; }
+.market-data-toast.error > svg { color: var(--red); }
+.market-data-toast-content { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.market-data-toast-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.market-data-toast-content small { color: var(--muted); font: 9px var(--font-geist-mono), monospace; }
+.market-data-toast button { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.market-data-toast button:hover { background: var(--panel-soft); color: var(--text); }
+.market-data-toast-progress { position: absolute; right: 8px; bottom: 3px; left: 8px; height: 2px; overflow: hidden; border-radius: 99px; background: var(--border); }
+.market-data-toast-progress::after { content: ""; display: block; width: 100%; height: 100%; transform-origin: left; animation: market-data-toast-progress 3.6s linear forwards; background: var(--accent); }
+.market-data-toast.error .market-data-toast-progress::after { background: var(--red); }
+.workspace-file-input { display: none; }
+@keyframes market-data-toast-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 .brand-lockup { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: -.035em; white-space: nowrap; }
 .brand-mark { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid #3a4c36; background: #1b2919; color: var(--accent); border-radius: 8px; }
 .brand-accent { color: var(--accent); }
